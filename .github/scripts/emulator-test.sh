@@ -18,14 +18,16 @@ echo "$MAGNET" > "$OUT/magnet.txt"
 adb shell am start -W -a android.intent.action.VIEW -d "'$MAGNET'" com.raontorrent
 sleep 30
 adb exec-out screencap -p > "$OUT/screen-30s.png"
-for i in 1 2 3 4 5 6; do
+for i in 1 2 3 4 5 6 7 8 9 10; do
   sleep 25
   # 혹시 프로세스가 정리되면 다시 띄움 (목록은 자동 복원)
   adb shell pidof com.raontorrent >/dev/null || adb shell am start -W com.raontorrent/.MainActivity
 done
-adb exec-out screencap -p > "$OUT/screen-180s.png"
+adb exec-out screencap -p > "$OUT/screen-end.png"
 
 adb logcat -d -s RaonTorrentStats:I RaonTorrent:* ReactNativeJS:* AndroidRuntime:E > "$OUT/logcat.txt" || true
 adb logcat -d > "$OUT/logcat-full.txt" || true
-grep RaonTorrentStats "$OUT/logcat.txt" | tail -30
+grep RaonTorrentStats "$OUT/logcat-full.txt" | tail -40
+grep -E "moving|moved|move failed|has died" "$OUT/logcat-full.txt" | grep -i raon > "$OUT/events.txt" || true
+cat "$OUT/events.txt"
 exit 0

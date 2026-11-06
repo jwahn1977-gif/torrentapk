@@ -270,7 +270,7 @@ export default function SettingsScreen(props: Props) {
             p={p}
             label="기본 다운로드 폴더"
             value={st.downloadDir ? shortPath(st.downloadDir) : '자동'}
-            sub={`현재: ${props.saveDir}`}
+            sub={`받는 동안은 앱 내부 저장소에 두었다가, 완료되면 이 폴더로 옮깁니다.\n현재: ${props.saveDir}`}
             onPress={chooseFolder}
           />
           {!!st.downloadDir && (
@@ -303,7 +303,7 @@ export default function SettingsScreen(props: Props) {
         </Section>
 
         <Text style={s.footer}>
-          RaonTorrent 1.1 · libtorrent {props.libtorrent} · Android API {props.sdk}
+          RaonTorrent 1.2 · libtorrent {props.libtorrent} · Android API {props.sdk}
         </Text>
       </ScrollView>
 

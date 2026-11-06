@@ -32,6 +32,7 @@ type TState =
   | 'completed'
   | 'paused'
   | 'queued'
+  | 'moving'
   | 'error';
 
 interface TorrentItem {
@@ -55,6 +56,7 @@ interface TorrentItem {
   trackers: number;
   trackersFailed: number;
   activeSeconds: number;
+  location: 'incomplete' | 'final';
 }
 
 interface EngineInfo {
@@ -78,6 +80,7 @@ const STATE_LABEL: Record<TState, string> = {
   completed: '완료',
   paused: '일시정지',
   queued: '대기',
+  moving: '폴더로 이동 중',
   error: '오류',
 };
 
@@ -441,6 +444,11 @@ function TorrentCard({
         </Text>
       )}
       {avg > 0 && <Text style={s.meta}>평균 속도 {fmtRate(avg)}</Text>}
+      {t.location === 'incomplete' && !done && (
+        <Text style={s.meta} numberOfLines={1}>
+          완료 후 이동: {t.savePath.replace(/^\/storage\/emulated\/0\//, '')}
+        </Text>
+      )}
       {!!t.error && <Text style={[s.meta, {color: p.danger}]}>{t.error}</Text>}
 
       <View style={s.actions}>

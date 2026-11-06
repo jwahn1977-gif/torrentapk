@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.libtorrent4j.AlertListener
 import org.libtorrent4j.AnnounceEntry
+import org.libtorrent4j.MoveFlags
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.SessionParams
@@ -72,7 +73,11 @@ object TorrentEngine {
             }
           }
         })
-    session.start(SessionParams(sp))
+    val params = SessionParams(sp)
+    // mmap 디스크 I/O는 Android 저장소(FUSE)에서 느리거나 시스템 저장소 서비스를 크래시시킴
+    // (에뮬레이터에서 재현) → 단순 read/write 방식 사용
+    params.setPosixDiskIO()
+    session.start(params)
     isStarted = true
     restore()
     watchNetwork()
@@ -217,6 +222,21 @@ object TorrentEngine {
           th.resume()
         }
       }
+      AlertType.TORRENT_FINISHED -> {
+        val th = (alert as org.libtorrent4j.alerts.TorrentFinishedAlert).handle()
+        moveToFinal(th)
+      }
+      AlertType.STORAGE_MOVED -> {
+        val a = alert as org.libtorrent4j.alerts.StorageMovedAlert
+        val hash = a.handle().infoHash().toHex()
+        entry(hash)?.let { saveEntry(hash, it.put("loc", "final")) }
+        Log.i(TAG, "moved $hash -> ${a.storagePath()}")
+      }
+      AlertType.STORAGE_MOVED_FAILED -> {
+        val a = alert as org.libtorrent4j.alerts.StorageMovedFailedAlert
+        Log.w(TAG, "move failed: ${a.error().message} ${a.filePath()}")
+        moveFailed[a.handle().infoHash().toHex()] = a.error().message
+      }
       AlertType.METADATA_RECEIVED -> {
         val th = (alert as org.libtorrent4j.alerts.MetadataReceivedAlert).handle()
         if (TorrentSettings.get().optBoolean("extraTrackers", true)) addExtraTrackers(th)
@@ -259,6 +279,28 @@ object TorrentEngine {
 
   private fun torrentFileDir(): File = File(app.filesDir, "torrents").apply { mkdirs() }
 
+  /**
+   * 받는 중인 파일은 앱 내부 저장소(FUSE를 거치지 않아 빠르고 안정적)에 두고,
+   * 완료되면 사용자 폴더로 한 번에 이동한다. (qBittorrent '미완료 파일 별도 보관'과 같은 방식)
+   */
+  private fun incompleteDir(): File = File(app.filesDir, "incomplete").apply { mkdirs() }
+
+  private val moveFailed = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+  private fun moveToFinal(th: TorrentHandle) {
+    val hash = th.infoHash().toHex()
+    val e = entry(hash) ?: return
+    if (e.optString("loc", "final") == "final") return
+    val target = File(e.optString("save", saveDir().absolutePath))
+    target.mkdirs()
+    if (th.savePath() == target.absolutePath) {
+      saveEntry(hash, e.put("loc", "final"))
+      return
+    }
+    Log.i(TAG, "moving $hash to $target")
+    th.moveStorage(target.absolutePath, MoveFlags.ALWAYS_REPLACE_FILES)
+  }
+
   private fun entry(hash: String): JSONObject? =
       prefs.getString(hash, null)?.let {
         try {
@@ -292,7 +334,9 @@ object TorrentEngine {
     for ((hash, raw) in prefs.all) {
       try {
         val e = JSONObject(raw as String)
-        val dir = File(e.optString("save", saveDir().absolutePath)).apply { mkdirs() }
+        val dir =
+            if (e.optString("loc", "final") == "incomplete") incompleteDir()
+            else File(e.optString("save", saveDir().absolutePath)).apply { mkdirs() }
         when (e.getString("type")) {
           "file" -> {
             val f = File(e.getString("value"))
@@ -348,9 +392,10 @@ object TorrentEngine {
             .put("value", file.absolutePath)
             .put("name", ti.name())
             .put("save", dir.absolutePath)
+            .put("loc", "incomplete")
             .put("paused", false)
             .put("added", System.currentTimeMillis()))
-    session.download(ti, dir)
+    session.download(ti, incompleteDir())
     return ti.name()
   }
 
@@ -370,9 +415,10 @@ object TorrentEngine {
             .put("value", magnet)
             .put("name", name)
             .put("save", dir.absolutePath)
+            .put("loc", "incomplete")
             .put("paused", false)
             .put("added", System.currentTimeMillis()))
-    session.download(magnet, dir, torrent_flags_t())
+    session.download(magnet, incompleteDir(), torrent_flags_t())
     return name
   }
 
@@ -491,6 +537,7 @@ object TorrentEngine {
     val state =
         when {
           err.isError -> "error"
+          st.isMovingStorage -> "moving"
           paused && st.isFinished -> "completed"
           paused -> "paused"
           queued -> "queued"
@@ -510,7 +557,8 @@ object TorrentEngine {
         .put("hash", hash)
         .put("name", name)
         .put("state", state)
-        .put("error", if (err.isError) err.message else "")
+        .put("error", if (err.isError) err.message else moveFailed[hash]?.let { "폴더 이동 실패: $it" } ?: "")
+        .put("location", if (e?.optString("loc", "final") == "incomplete") "incomplete" else "final")
         .put("progress", st.progress().toDouble())
         .put("totalSize", wanted)
         .put("doneSize", done)
