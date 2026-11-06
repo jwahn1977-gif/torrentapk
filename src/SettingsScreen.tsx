@@ -33,6 +33,7 @@ export interface AppSettings {
   upnp: boolean;
   sequential: boolean;
   downloadDir: string;
+  autoExport: boolean;
 }
 
 interface Props {
@@ -275,6 +276,20 @@ export default function SettingsScreen(props: Props) {
           />
           {!!st.downloadDir && (
             <Row p={p} label="자동 폴더로 되돌리기" onPress={() => onChange({downloadDir: ''})} />
+          )}
+          {!props.publicStorage && (
+            <Row
+              p={p}
+              label="완료되면 Download 폴더로 옮기기"
+              sub="권한 없이 Download/RaonTorrent 에 저장합니다. 파일 앱에서 바로 보입니다 (옮긴 뒤 시딩은 멈춤)"
+              right={
+                <Switch
+                  value={st.autoExport}
+                  onValueChange={v => onChange({autoExport: v})}
+                  trackColor={{true: p.accent}}
+                />
+              }
+            />
           )}
           {!props.publicStorage && (
             <Row

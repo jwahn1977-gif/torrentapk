@@ -59,6 +59,7 @@ object TorrentSettings {
           .put("upnp", true)
           .put("sequential", false)
           .put("downloadDir", "") // '' = 자동
+          .put("autoExport", true) // 완료 후 앱 전용 폴더 → 공용 Download/RaonTorrent 자동 이동
 
   private lateinit var app: Context
   private val prefs by lazy { app.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }

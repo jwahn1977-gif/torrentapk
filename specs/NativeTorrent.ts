@@ -17,6 +17,8 @@ export interface Spec extends TurboModule {
   remove(hash: string, deleteFiles: boolean): Promise<void>;
   /** 다운로드된 파일(가장 큰 파일)을 외부 앱으로 열기 */
   openFile(hash: string): Promise<void>;
+  /** 완료된 토렌트를 공용 Download/RaonTorrent 로 옮기기 → 보여줄 경로 */
+  exportToPublic(hash: string): Promise<string>;
   /** 설정 JSON */
   getSettings(): Promise<string>;
   /** 설정 일부 변경(JSON) → 적용된 전체 설정 반환 */

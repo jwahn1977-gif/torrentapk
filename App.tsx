@@ -33,6 +33,8 @@ type TState =
   | 'paused'
   | 'queued'
   | 'moving'
+  | 'exporting'
+  | 'exported'
   | 'error';
 
 interface TorrentItem {
@@ -57,6 +59,7 @@ interface TorrentItem {
   trackersFailed: number;
   activeSeconds: number;
   location: 'incomplete' | 'final';
+  isPublic: boolean;
 }
 
 interface EngineInfo {
@@ -81,6 +84,8 @@ const STATE_LABEL: Record<TState, string> = {
   paused: '일시정지',
   queued: '대기',
   moving: '폴더로 이동 중',
+  exporting: 'Download로 옮기는 중',
+  exported: '완료 · Download 폴더',
   error: '오류',
 };
 
@@ -386,8 +391,13 @@ function TorrentCard({
   const p = usePalette();
   const s = styles(p);
   const pct = Math.max(0, Math.min(1, t.progress));
-  const isPaused = t.state === 'paused' || t.state === 'completed';
-  const done = pct >= 1 || t.state === 'seeding' || t.state === 'completed';
+  const exported = t.state === 'exported';
+  const isPaused =
+    t.state === 'paused' || t.state === 'completed' || exported || t.state === 'exporting';
+  const done =
+    pct >= 1 || t.state === 'seeding' || t.state === 'completed' || exported;
+  const canExport =
+    done && !exported && t.state !== 'exporting' && t.state !== 'moving' && !t.isPublic;
   const barColor = t.state === 'error' ? p.danger : isPaused ? p.sub : p.accent;
   const avg = t.activeSeconds > 0 ? t.doneSize / t.activeSeconds : 0;
   const stalled = !isPaused && !done && t.hasMetadata && t.peers === 0;
@@ -400,6 +410,12 @@ function TorrentCard({
     }
     onChanged();
   };
+
+  const exportNow = () =>
+    run(async () => {
+      const where = await Torrent.exportToPublic(t.hash);
+      toast(`${where} 로 옮겼습니다`);
+    });
 
   const confirmRemove = () =>
     Alert.alert('삭제', t.name, [
@@ -449,6 +465,16 @@ function TorrentCard({
           완료 후 이동: {t.savePath.replace(/^\/storage\/emulated\/0\//, '')}
         </Text>
       )}
+      {exported && (
+        <Text style={s.meta} numberOfLines={2}>
+          저장 위치: {t.savePath}
+        </Text>
+      )}
+      {canExport && (
+        <Text style={s.meta} numberOfLines={1}>
+          앱 전용 폴더에 있음 (파일 앱에서 안 보임)
+        </Text>
+      )}
       {!!t.error && <Text style={[s.meta, {color: p.danger}]}>{t.error}</Text>}
 
       <View style={s.actions}>
@@ -457,11 +483,18 @@ function TorrentCard({
             <Text style={s.smallBtnText}>열기</Text>
           </Pressable>
         )}
-        <Pressable
-          style={s.smallBtn}
-          onPress={() => run(() => (isPaused ? Torrent.resume(t.hash) : Torrent.pause(t.hash)))}>
-          <Text style={s.smallBtnText}>{isPaused ? '재개' : '일시정지'}</Text>
-        </Pressable>
+        {canExport && (
+          <Pressable style={s.smallBtn} onPress={exportNow}>
+            <Text style={[s.smallBtnText, {color: p.accent}]}>Download로 옮기기</Text>
+          </Pressable>
+        )}
+        {!exported && t.state !== 'exporting' && (
+          <Pressable
+            style={s.smallBtn}
+            onPress={() => run(() => (isPaused ? Torrent.resume(t.hash) : Torrent.pause(t.hash)))}>
+            <Text style={s.smallBtnText}>{isPaused ? '재개' : '일시정지'}</Text>
+          </Pressable>
+        )}
         <Pressable style={s.smallBtn} onPress={confirmRemove}>
           <Text style={[s.smallBtnText, {color: p.danger}]}>삭제</Text>
         </Pressable>

@@ -115,8 +115,26 @@ class TorrentModule(private val ctx: ReactApplicationContext) : NativeTorrentSpe
   override fun remove(hash: String, deleteFiles: Boolean, promise: Promise) =
       bg(promise) { TorrentEngine.remove(hash, deleteFiles) }
 
+  override fun exportToPublic(hash: String, promise: Promise) =
+      bg(promise) { TorrentEngine.exportToPublic(hash) }
+
   override fun openFile(hash: String, promise: Promise) {
     try {
+      val exported = TorrentEngine.exportedMainUri(hash)
+      if (exported.isNotEmpty()) {
+        val uri = Uri.parse(exported)
+        val mime = ctx.contentResolver.getType(uri) ?: "*/*"
+        val view =
+            Intent(Intent.ACTION_VIEW).apply {
+              setDataAndType(uri, mime)
+              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        val chooser =
+            Intent.createChooser(view, "열기").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        (ctx.currentActivity ?: ctx).startActivity(chooser)
+        promise.resolve(null)
+        return
+      }
       val file =
           TorrentEngine.mainFile(hash) ?: throw IllegalStateException("아직 파일 정보가 없습니다")
       if (!file.exists()) throw IllegalStateException("파일이 아직 없습니다")

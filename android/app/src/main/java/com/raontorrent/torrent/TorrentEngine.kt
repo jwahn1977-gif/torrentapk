@@ -1,6 +1,7 @@
 package com.raontorrent.torrent
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
@@ -9,6 +10,8 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -225,12 +228,14 @@ object TorrentEngine {
       AlertType.TORRENT_FINISHED -> {
         val th = (alert as org.libtorrent4j.alerts.TorrentFinishedAlert).handle()
         moveToFinal(th)
+        maybeAutoExport(th)
       }
       AlertType.STORAGE_MOVED -> {
         val a = alert as org.libtorrent4j.alerts.StorageMovedAlert
         val hash = a.handle().infoHash().toHex()
-        entry(hash)?.let { saveEntry(hash, it.put("loc", "final")) }
+        entry(hash)?.let { saveEntry(hash, it.put("loc", "final").put("save", a.storagePath())) }
         Log.i(TAG, "moved $hash -> ${a.storagePath()}")
+        maybeAutoExport(a.handle())
       }
       AlertType.STORAGE_MOVED_FAILED -> {
         val a = alert as org.libtorrent4j.alerts.StorageMovedFailedAlert
@@ -334,6 +339,7 @@ object TorrentEngine {
     for ((hash, raw) in prefs.all) {
       try {
         val e = JSONObject(raw as String)
+        if (e.optString("type") == "exported") continue
         val dir =
             if (e.optString("loc", "final") == "incomplete") incompleteDir()
             else File(e.optString("save", saveDir().absolutePath)).apply { mkdirs() }
@@ -447,6 +453,16 @@ object TorrentEngine {
     }
     entry(hash)?.let { e ->
       if (e.optString("type") == "file") File(e.optString("value")).delete()
+      if (e.optString("type") == "exported" && deleteFiles) {
+        val uris = e.optJSONArray("uris")
+        for (i in 0 until (uris?.length() ?: 0)) {
+          try {
+            app.contentResolver.delete(Uri.parse(uris!!.getString(i)), null, null)
+          } catch (t: Throwable) {
+            Log.w(TAG, "delete exported failed", t)
+          }
+        }
+      }
     }
     prefs.edit().remove(hash).apply()
   }
@@ -469,6 +485,182 @@ object TorrentEngine {
     if (best < 0) return null
     return File(fs.filePath(best, th.savePath()))
   }
+
+  // ---------------------------------------------------------------- 공용 Download 폴더로 내보내기
+
+  private val exporting = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+  private val exportFailed = java.util.concurrent.ConcurrentHashMap<String, String>()
+  private val exportIo = Executors.newSingleThreadExecutor()
+
+  /** 앱 전용 폴더(Android/data, 내부 저장소)에 있는지 = 파일 앱에서 안 보이는지 */
+  private fun isPrivatePath(path: String): Boolean =
+      path.contains("/Android/data/") || path.startsWith(app.filesDir.absolutePath)
+
+  /** 완료 + 앱 전용 폴더에 저장됨 + 자동 이동 켜짐 → 공용 Download/RaonTorrent로 자동 이동 */
+  private fun maybeAutoExport(th: TorrentHandle) {
+    if (!TorrentSettings.get().optBoolean("autoExport", true)) return
+    val hash = th.infoHash().toHex()
+    val e = entry(hash) ?: return
+    if (e.optString("loc", "final") != "final") return // 아직 내부 폴더 → 이동 후 STORAGE_MOVED에서 다시 호출
+    if (!isPrivatePath(th.savePath())) return
+    if (exportFailed.containsKey(hash)) return // 실패한 건 자동 재시도하지 않음 (버튼으로 다시)
+    if (!th.status().isFinished) return
+    exportIo.execute {
+      try {
+        exportToPublic(hash)
+      } catch (t: Throwable) {
+        Log.w(TAG, "auto export failed", t)
+      }
+    }
+  }
+
+  /**
+   * 완료된 토렌트 파일을 공용 Download/RaonTorrent 로 옮긴다.
+   * - '모든 파일 접근' 권한이 있으면 libtorrent가 직접 이동 (시딩 계속)
+   * - 없으면 MediaStore로 복사(Android 10+, 권한 불필요) 후 원본 삭제, 목록엔 '완료' 기록으로 남김
+   * 반환: 사용자에게 보여줄 경로
+   */
+  fun exportToPublic(hash: String): String {
+    val th = find(hash) ?: throw IllegalStateException("목록에 없는 토렌트입니다")
+    val st = th.status()
+    if (!st.isFinished) throw IllegalStateException("다운로드가 끝난 뒤에 옮길 수 있습니다")
+    val ti = th.torrentFile() ?: throw IllegalStateException("아직 파일 정보가 없습니다")
+    val e = entry(hash) ?: throw IllegalStateException("목록 정보가 없습니다")
+    if (!exporting.add(hash)) throw IllegalStateException("이미 옮기는 중입니다")
+    try {
+      exportFailed.remove(hash)
+      val base =
+          File(
+              Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+              "RaonTorrent")
+
+      if (canWritePublic()) {
+        base.mkdirs()
+        saveEntry(hash, e.put("save", base.absolutePath))
+        th.moveStorage(base.absolutePath, MoveFlags.ALWAYS_REPLACE_FILES)
+        return "Download/RaonTorrent"
+      }
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        throw IllegalStateException("이 Android 버전은 설정 → 저장 → 저장소 권한 허용이 필요합니다")
+      }
+
+      val src = th.savePath()
+      val fs = ti.files()
+      val uris = org.json.JSONArray()
+      var mainUri = ""
+      var mainSize = -1L
+      var total = 0L
+      val resolver = app.contentResolver
+      val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+      try {
+        for (i in 0 until fs.numFiles()) {
+          if (fs.padFileAt(i)) continue
+          val rel = fs.filePath(i) // 예: "폴더/sub/a.mkv" 또는 "a.mkv"
+          val f = File(src, rel)
+          if (!f.exists()) throw IllegalStateException("파일이 없습니다: $rel")
+          val parent = File(rel).parent
+          val relDir =
+              Environment.DIRECTORY_DOWNLOADS + "/RaonTorrent" + (if (parent != null) "/$parent" else "")
+          val mime =
+              MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase())
+                  ?: "application/octet-stream"
+          val values =
+              ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relDir)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+              }
+          val uri =
+              resolver.insert(collection, values)
+                  ?: throw IllegalStateException("Download 폴더에 파일을 만들 수 없습니다")
+          uris.put(uri.toString())
+          resolver.openOutputStream(uri)?.use { out ->
+            f.inputStream().use { it.copyTo(out, 1 shl 20) }
+          } ?: throw IllegalStateException("Download 폴더에 쓸 수 없습니다")
+          resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+          val size = f.length()
+          total += size
+          if (size > mainSize) {
+            mainSize = size
+            mainUri = uri.toString()
+          }
+        }
+      } catch (t: Throwable) {
+        // 반쯤 복사된 파일 정리
+        for (i in 0 until uris.length()) {
+          try {
+            resolver.delete(Uri.parse(uris.getString(i)), null, null)
+          } catch (_: Throwable) {}
+        }
+        throw t
+      }
+
+      val topDir = if (fs.numFiles() > 1 || fs.filePath(0).contains('/')) "/" + ti.name() else ""
+      val shown = "Download/RaonTorrent$topDir"
+      // 원본은 지우고, 목록에는 '완료' 기록으로 남긴다 (열기/삭제 가능)
+      saveEntry(
+          hash,
+          JSONObject()
+              .put("type", "exported")
+              .put("name", ti.name())
+              .put("path", shown)
+              .put("uris", uris)
+              .put("main", mainUri)
+              .put("size", total)
+              .put("paused", true)
+              .put("added", e.optLong("added")))
+      session.remove(th, SessionHandle.DELETE_FILES)
+      e.optString("value").takeIf { e.optString("type") == "file" }?.let { File(it).delete() }
+      Log.i(TAG, "exported $hash -> $shown")
+      return shown
+    } catch (t: Throwable) {
+      exportFailed[hash] = t.message ?: t.javaClass.simpleName
+      throw t
+    } finally {
+      exporting.remove(hash)
+    }
+  }
+
+  /** 내보낸 항목의 대표 파일 content:// 주소 ('' = 내보낸 항목 아님) */
+  fun exportedMainUri(hash: String): String {
+    val e = entry(hash) ?: return ""
+    return if (e.optString("type") == "exported") e.optString("main") else ""
+  }
+
+  private fun exportedJson(): List<JSONObject> =
+      prefs.all.mapNotNull { (hash, raw) ->
+        try {
+          val e = JSONObject(raw as String)
+          if (e.optString("type") != "exported") return@mapNotNull null
+          val size = e.optLong("size")
+          JSONObject()
+              .put("hash", hash)
+              .put("name", e.optString("name"))
+              .put("state", "exported")
+              .put("error", "")
+              .put("location", "final")
+              .put("isPublic", true)
+              .put("progress", 1.0)
+              .put("totalSize", size)
+              .put("doneSize", size)
+              .put("downRate", 0)
+              .put("upRate", 0)
+              .put("peers", 0)
+              .put("seeds", 0)
+              .put("eta", -1)
+              .put("hasMetadata", true)
+              .put("knownPeers", 0)
+              .put("connectCandidates", 0)
+              .put("trackers", 0)
+              .put("trackersFailed", 0)
+              .put("activeSeconds", 0)
+              .put("savePath", e.optString("path"))
+              .put("added", e.optLong("added"))
+        } catch (_: Exception) {
+          null
+        }
+      }
 
   // ---------------------------------------------------------------- status
 
@@ -504,11 +696,14 @@ object TorrentEngine {
     val arr = JSONArray()
     for (th in handles()) {
       try {
+        // 내보내기 직후 세션에서 빠지기 전까지 중복 표시 방지
+        if (entry(th.infoHash().toHex())?.optString("type") == "exported") continue
         arr.put(statusJson(th))
       } catch (t: Throwable) {
         Log.w(TAG, "status failed", t)
       }
     }
+    if (::app.isInitialized) exportedJson().forEach { arr.put(it) }
     return arr.toString()
   }
 
@@ -536,6 +731,7 @@ object TorrentEngine {
 
     val state =
         when {
+          hash in exporting -> "exporting"
           err.isError -> "error"
           st.isMovingStorage -> "moving"
           paused && st.isFinished -> "completed"
@@ -557,7 +753,14 @@ object TorrentEngine {
         .put("hash", hash)
         .put("name", name)
         .put("state", state)
-        .put("error", if (err.isError) err.message else moveFailed[hash]?.let { "폴더 이동 실패: $it" } ?: "")
+        .put(
+            "error",
+            if (err.isError) err.message
+            else
+                moveFailed[hash]?.let { "폴더 이동 실패: $it" }
+                    ?: exportFailed[hash]?.let { "Download로 옮기기 실패: $it" }
+                    ?: "")
+        .put("isPublic", !isPrivatePath(th.savePath()))
         .put("location", if (e?.optString("loc", "final") == "incomplete") "incomplete" else "final")
         .put("progress", st.progress().toDouble())
         .put("totalSize", wanted)
