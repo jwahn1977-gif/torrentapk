@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -41,3 +44,25 @@ jobs:
           name: RaonTorrent-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release (휴대폰에서 바로 설치용)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${GITHUB_RUN_NUMBER}"
+          cp android/app/build/outputs/apk/release/app-release.apk RaonTorrent.apk
+          gh release create "$TAG" RaonTorrent.apk \
+            --title "RaonTorrent ${TAG}" \
+            --notes "커밋 ${GITHUB_SHA::7} 자동 빌드 (Android 9+, arm64/armv7/x86_64)" \
+            --latest
+
+      - name: Push APK to apk-build branch
+        run: |
+          mkdir /tmp/apkbranch && cd /tmp/apkbranch
+          git init -q -b apk-build
+          cp "$GITHUB_WORKSPACE/RaonTorrent.apk" .
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add RaonTorrent.apk
+          git commit -q -m "APK build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" apk-build
