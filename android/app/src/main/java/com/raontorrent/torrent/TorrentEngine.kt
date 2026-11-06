@@ -572,7 +572,8 @@ object TorrentEngine {
         .put("connectCandidates", st.connectCandidates())
         .put("trackers", trackers)
         .put("trackersFailed", trackersFailed)
-        .put("activeSeconds", st.activeDuration())
+        // libtorrent4j activeDuration()은 밀리초 단위 (에뮬레이터 실측으로 확인)
+        .put("activeSeconds", st.activeDuration() / 1000)
         .put("savePath", e?.optString("save") ?: "")
         .put("added", e?.optLong("added") ?: 0L)
   }

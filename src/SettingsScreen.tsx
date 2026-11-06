@@ -303,7 +303,7 @@ export default function SettingsScreen(props: Props) {
         </Section>
 
         <Text style={s.footer}>
-          RaonTorrent 1.2 · libtorrent {props.libtorrent} · Android API {props.sdk}
+          RaonTorrent 1.2.1 · libtorrent {props.libtorrent} · Android API {props.sdk}
         </Text>
       </ScrollView>
 
