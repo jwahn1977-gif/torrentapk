@@ -5,6 +5,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Alert,
   AppState,
+  BackHandler,
   FlatList,
   Linking,
   PermissionsAndroid,
@@ -20,6 +21,8 @@ import {
 } from 'react-native';
 import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-context';
 import Torrent from './specs/NativeTorrent';
+import SettingsScreen, {AppSettings} from './src/SettingsScreen';
+import {DARK, LIGHT, Palette, PaletteContext, fmtRate, fmtSize, usePalette} from './src/theme';
 
 type TState =
   | 'metadata'
@@ -47,10 +50,17 @@ interface TorrentItem {
   hasMetadata: boolean;
   savePath: string;
   added: number;
+  knownPeers: number;
+  connectCandidates: number;
+  trackers: number;
+  trackersFailed: number;
+  activeSeconds: number;
 }
 
 interface EngineInfo {
   started: boolean;
+  waitingForWifi: boolean;
+  port: number;
   saveDir: string;
   publicStorage: boolean;
   sdk: number;
@@ -71,13 +81,6 @@ const STATE_LABEL: Record<TState, string> = {
   error: '오류',
 };
 
-function fmtSize(b: number): string {
-  if (b <= 0) return '0 B';
-  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1);
-  return `${(b / Math.pow(1024, i)).toFixed(i >= 2 ? 2 : 0)} ${u[i]}`;
-}
-const fmtRate = (b: number) => `${fmtSize(b)}/s`;
 function fmtEta(s: number): string {
   if (s < 0) return '—';
   if (s < 60) return `${s}초`;
@@ -91,55 +94,48 @@ function toast(msg: string) {
   if (Platform.OS === 'android') ToastAndroid.show(msg, ToastAndroid.SHORT);
 }
 
-// ------------------------------------------------------------------ theme
-function usePalette() {
-  const dark = useColorScheme() === 'dark';
-  return useMemo(
-    () =>
-      dark
-        ? {
-            dark,
-            bg: '#0f1412',
-            card: '#18201c',
-            text: '#e8efe9',
-            sub: '#95a39a',
-            line: '#26302b',
-            accent: '#7cc35b',
-            accentText: '#0f1412',
-            track: '#2a352f',
-            danger: '#ff7a6e',
-            input: '#121916',
-          }
-        : {
-            dark,
-            bg: '#f4f6f3',
-            card: '#ffffff',
-            text: '#16201a',
-            sub: '#5f6d64',
-            line: '#e2e7e2',
-            accent: '#4f9a2f',
-            accentText: '#ffffff',
-            track: '#e6ece5',
-            danger: '#c8382c',
-            input: '#f8faf7',
-          },
-    [dark],
-  );
-}
-type Palette = ReturnType<typeof usePalette>;
-
 // ------------------------------------------------------------------ app
 export default function App() {
-  const p = usePalette();
+  const system = useColorScheme();
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const mode = settings?.theme ?? 'system';
+  const dark = mode === 'dark' || (mode === 'system' && system === 'dark');
+  const palette = dark ? DARK : LIGHT;
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={p.dark ? 'light-content' : 'dark-content'} />
-      <Main />
-    </SafeAreaProvider>
+    <PaletteContext.Provider value={palette}>
+      <SafeAreaProvider>
+        <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
+        <Main settings={settings} setSettings={setSettings} />
+      </SafeAreaProvider>
+    </PaletteContext.Provider>
   );
 }
 
-function Main() {
+/** doneSize 변화량으로 계산한 실측 속도 (최근 5초) — 엔진 표시값 교차 검증용 */
+function useMeasuredRates(items: TorrentItem[]) {
+  const hist = useRef<Record<string, {t: number; done: number}[]>>({});
+  return useMemo(() => {
+    const now = Date.now();
+    const out: Record<string, number> = {};
+    for (const it of items) {
+      const h = (hist.current[it.hash] ??= []);
+      h.push({t: now, done: it.doneSize});
+      while (h.length > 2 && now - h[0].t > 5000) h.shift();
+      const first = h[0];
+      const dt = (now - first.t) / 1000;
+      out[it.hash] = dt >= 1 ? Math.max(0, (it.doneSize - first.done) / dt) : 0;
+    }
+    return out;
+  }, [items]);
+}
+
+function Main({
+  settings,
+  setSettings,
+}: {
+  settings: AppSettings | null;
+  setSettings: (s: AppSettings) => void;
+}) {
   const p = usePalette();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<TorrentItem[]>([]);
@@ -149,13 +145,11 @@ function Main() {
   const [showSettings, setShowSettings] = useState(false);
   const ready = useRef(false);
   const pendingUrls = useRef<string[]>([]);
+  const measured = useMeasuredRates(items);
 
   const refresh = useCallback(async () => {
     try {
-      const [list, inf] = await Promise.all([
-        Torrent.getTorrents(),
-        Torrent.getInfo(),
-      ]);
+      const [list, inf] = await Promise.all([Torrent.getTorrents(), Torrent.getInfo()]);
       const parsed: TorrentItem[] = JSON.parse(list);
       parsed.sort((a, b) => b.added - a.added);
       setItems(parsed);
@@ -164,6 +158,24 @@ function Main() {
       // 엔진 시작 전에는 무시
     }
   }, []);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      setSettings(JSON.parse(await Torrent.getSettings()));
+    } catch {}
+  }, [setSettings]);
+
+  const changeSettings = useCallback(
+    async (patch: Partial<AppSettings>) => {
+      try {
+        setSettings(JSON.parse(await Torrent.setSettings(JSON.stringify(patch))));
+        refresh();
+      } catch (e: any) {
+        Alert.alert('설정 저장 실패', e?.message ?? String(e));
+      }
+    },
+    [refresh, setSettings],
+  );
 
   const addUri = useCallback(
     async (uri: string) => {
@@ -193,9 +205,9 @@ function Main() {
     let alive = true;
     (async () => {
       if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
-        await PermissionsAndroid.request(
-          'android.permission.POST_NOTIFICATIONS' as any,
-        ).catch(() => null);
+        await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS' as any).catch(
+          () => null,
+        );
       }
       try {
         await Torrent.start();
@@ -205,6 +217,7 @@ function Main() {
       }
       if (!alive) return;
       ready.current = true;
+      loadSettings();
       const initial = await Linking.getInitialURL();
       if (initial) pendingUrls.current.push(initial);
       const queued = pendingUrls.current.splice(0);
@@ -216,7 +229,7 @@ function Main() {
       alive = false;
       sub.remove();
     };
-  }, [addUri, refresh]);
+  }, [addUri, refresh, loadSettings]);
 
   // 화면이 켜져 있을 때 1초마다 상태 갱신
   useEffect(() => {
@@ -229,14 +242,26 @@ function Main() {
       timer = null;
     };
     startPoll();
-    const sub = AppState.addEventListener('change', s =>
-      s === 'active' ? (refresh(), startPoll()) : stopPoll(),
+    const sub = AppState.addEventListener('change', st =>
+      st === 'active' ? (refresh(), startPoll()) : stopPoll(),
     );
     return () => {
       stopPoll();
       sub.remove();
     };
   }, [refresh]);
+
+  // 설정 화면에서 뒤로가기
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSettings) {
+        setShowSettings(false);
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [showSettings]);
 
   const pickFile = async () => {
     try {
@@ -247,29 +272,29 @@ function Main() {
     }
   };
 
-  const pasteMagnet = () => addUri(magnet);
+  if (showSettings && settings && info) {
+    return (
+      <SettingsScreen
+        settings={settings}
+        onChange={changeSettings}
+        onClose={() => setShowSettings(false)}
+        saveDir={info.saveDir}
+        publicStorage={info.publicStorage}
+        sdk={info.sdk}
+        libtorrent={info.libtorrent}
+        onStorageChanged={refresh}
+      />
+    );
+  }
 
-  const askStorage = async () => {
-    if (!info) return;
-    if (info.sdk >= 30) {
-      Torrent.requestAllFilesAccess();
-    } else {
-      await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-      );
-      refresh();
-    }
-  };
-
-  const totalDown = items.reduce((s, t) => s + t.downRate, 0);
-  const totalUp = items.reduce((s, t) => s + t.upRate, 0);
+  const totalDown = items.reduce((a, t) => a + t.downRate, 0);
+  const totalUp = items.reduce((a, t) => a + t.upRate, 0);
   const s = styles(p);
 
   return (
     <View style={[s.root, {paddingTop: insets.top}]}>
-      {/* header */}
       <View style={s.header}>
-        <View style={{flex: 1}}>
+        <View style={s.flex1}>
           <Text style={s.title}>RaonTorrent</Text>
           <Text style={s.sub}>
             ↓ {fmtRate(totalDown)}   ↑ {fmtRate(totalUp)}
@@ -277,38 +302,23 @@ function Main() {
           </Text>
         </View>
         <Pressable
-          onPress={() => setShowSettings(v => !v)}
-          style={({pressed}) => [s.iconBtn, pressed && {opacity: 0.6}]}
+          onPress={() => {
+            loadSettings();
+            refresh();
+            setShowSettings(true);
+          }}
+          style={({pressed}) => [s.iconBtn, pressed && s.pressed]}
           accessibilityLabel="설정">
-          <Text style={s.iconBtnText}>{showSettings ? '닫기' : '설정'}</Text>
+          <Text style={s.iconBtnText}>설정</Text>
         </Pressable>
       </View>
 
-      {showSettings && info && (
-        <View style={s.settings}>
-          <Text style={s.label}>저장 위치</Text>
-          <Text style={s.mono} selectable>
-            {info.saveDir}
-          </Text>
-          {!info.publicStorage && (
-            <>
-              <Text style={[s.sub, {marginTop: 8}]}>
-                지금은 앱 전용 폴더에 저장됩니다. 파일 관리자에서 바로 보려면 공용
-                Download/RaonTorrent 폴더 저장을 허용하세요. (이후 추가하는 토렌트부터
-                적용)
-              </Text>
-              <Pressable style={[s.btn, {marginTop: 10}]} onPress={askStorage}>
-                <Text style={s.btnText}>공용 Download 폴더 사용 허용</Text>
-              </Pressable>
-            </>
-          )}
-          <Text style={[s.sub, {marginTop: 10}]}>
-            엔진: libtorrent {info.libtorrent} · Android API {info.sdk}
-          </Text>
+      {info?.waitingForWifi && (
+        <View style={s.banner}>
+          <Text style={s.bannerText}>Wi-Fi 연결을 기다리는 중 (설정 › Wi-Fi에서만 다운로드)</Text>
         </View>
       )}
 
-      {/* add bar */}
       <View style={s.addBar}>
         <TextInput
           style={s.input}
@@ -318,18 +328,18 @@ function Main() {
           placeholderTextColor={p.sub}
           autoCapitalize="none"
           autoCorrect={false}
-          onSubmitEditing={pasteMagnet}
+          onSubmitEditing={() => addUri(magnet)}
           returnKeyType="go"
         />
         <Pressable
-          style={[s.btn, (!magnet || busy) && {opacity: 0.5}]}
+          style={[s.btn, (!magnet || busy) && s.dim]}
           disabled={!magnet || busy}
-          onPress={pasteMagnet}>
+          onPress={() => addUri(magnet)}>
           <Text style={s.btnText}>추가</Text>
         </Pressable>
       </View>
       <Pressable
-        style={({pressed}) => [s.fileBtn, pressed && {opacity: 0.7}]}
+        style={({pressed}) => [s.fileBtn, pressed && s.pressed]}
         onPress={pickFile}
         disabled={busy}>
         <Text style={s.fileBtnText}>＋ .torrent 파일 열기</Text>
@@ -338,41 +348,46 @@ function Main() {
       <FlatList
         data={items}
         keyExtractor={t => t.hash}
-        contentContainerStyle={{padding: 16, paddingBottom: insets.bottom + 24}}
+        contentContainerStyle={[s.list, {paddingBottom: insets.bottom + 24}]}
         ItemSeparatorComponent={Separator}
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={s.emptyTitle}>다운로드가 없습니다</Text>
             <Text style={s.sub}>
-              .torrent 파일을 열거나 마그넷 링크를 붙여넣으세요.{'\n'}파일 관리자나
-              브라우저에서 .torrent / magnet 링크를 눌러도 이 앱으로 열립니다.
+              .torrent 파일을 열거나 마그넷 링크를 붙여넣으세요.{'\n'}파일 관리자나 브라우저에서
+              .torrent / magnet 링크를 눌러도 이 앱으로 열립니다.
             </Text>
           </View>
         }
-        renderItem={({item}) => <TorrentCard t={item} p={p} onChanged={refresh} />}
+        renderItem={({item}) => (
+          <TorrentCard t={item} measured={measured[item.hash] ?? 0} onChanged={refresh} />
+        )}
       />
     </View>
   );
 }
 
-const Separator = () => <View style={{height: 12}} />;
+const Separator = () => <View style={sepStyle.sep} />;
+const sepStyle = StyleSheet.create({sep: {height: 12}});
 
 // ------------------------------------------------------------------ card
 function TorrentCard({
   t,
-  p,
+  measured,
   onChanged,
 }: {
   t: TorrentItem;
-  p: Palette;
+  measured: number;
   onChanged: () => void;
 }) {
+  const p = usePalette();
   const s = styles(p);
   const pct = Math.max(0, Math.min(1, t.progress));
   const isPaused = t.state === 'paused' || t.state === 'completed';
   const done = pct >= 1 || t.state === 'seeding' || t.state === 'completed';
-  const barColor =
-    t.state === 'error' ? p.danger : isPaused ? p.sub : p.accent;
+  const barColor = t.state === 'error' ? p.danger : isPaused ? p.sub : p.accent;
+  const avg = t.activeSeconds > 0 ? t.doneSize / t.activeSeconds : 0;
+  const stalled = !isPaused && !done && t.hasMetadata && t.peers === 0;
 
   const run = async (fn: () => Promise<unknown>) => {
     try {
@@ -401,7 +416,7 @@ function TorrentCard({
       </Text>
       <View style={s.row}>
         <Text style={[s.badge, t.state === 'error' && {color: p.danger}]}>
-          {STATE_LABEL[t.state] ?? t.state}
+          {stalled ? '피어 찾는 중' : STATE_LABEL[t.state] ?? t.state}
         </Text>
         <Text style={s.pct}>{(pct * 100).toFixed(1)}%</Text>
       </View>
@@ -416,13 +431,19 @@ function TorrentCard({
       </Text>
       {!isPaused && (
         <Text style={s.meta}>
-          ↓ {fmtRate(t.downRate)}  ↑ {fmtRate(t.upRate)}  ·  피어 {t.peers} (시드{' '}
-          {t.seeds})
+          ↓ {fmtRate(t.downRate)} (실측 {fmtRate(measured)})  ↑ {fmtRate(t.upRate)}
         </Text>
       )}
+      {!isPaused && (
+        <Text style={s.meta}>
+          연결 피어 {t.peers} (시드 {t.seeds}) · 알려진 피어 {t.knownPeers}
+          {t.trackers > 0 ? ` · 트래커 ${t.trackers - t.trackersFailed}/${t.trackers} 응답` : ''}
+        </Text>
+      )}
+      {avg > 0 && <Text style={s.meta}>평균 속도 {fmtRate(avg)}</Text>}
       {!!t.error && <Text style={[s.meta, {color: p.danger}]}>{t.error}</Text>}
 
-      <View style={[s.row, {marginTop: 10, gap: 8, justifyContent: 'flex-end'}]}>
+      <View style={s.actions}>
         {t.hasMetadata && pct > 0 && (
           <Pressable style={s.smallBtn} onPress={() => run(() => Torrent.openFile(t.hash))}>
             <Text style={s.smallBtnText}>열기</Text>
@@ -430,9 +451,7 @@ function TorrentCard({
         )}
         <Pressable
           style={s.smallBtn}
-          onPress={() =>
-            run(() => (isPaused ? Torrent.resume(t.hash) : Torrent.pause(t.hash)))
-          }>
+          onPress={() => run(() => (isPaused ? Torrent.resume(t.hash) : Torrent.pause(t.hash)))}>
           <Text style={s.smallBtnText}>{isPaused ? '재개' : '일시정지'}</Text>
         </Pressable>
         <Pressable style={s.smallBtn} onPress={confirmRemove}>
@@ -447,12 +466,10 @@ function TorrentCard({
 const styles = (p: Palette) =>
   StyleSheet.create({
     root: {flex: 1, backgroundColor: p.bg},
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-    },
+    flex1: {flex: 1},
+    pressed: {opacity: 0.6},
+    dim: {opacity: 0.5},
+    header: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12},
     title: {fontSize: 22, fontWeight: '700', color: p.text},
     sub: {fontSize: 13, color: p.sub, lineHeight: 19},
     iconBtn: {
@@ -464,17 +481,15 @@ const styles = (p: Palette) =>
       backgroundColor: p.card,
     },
     iconBtnText: {color: p.text, fontSize: 14, fontWeight: '600'},
-    settings: {
+    banner: {
       marginHorizontal: 16,
-      marginBottom: 12,
-      padding: 14,
-      borderRadius: 14,
-      backgroundColor: p.card,
+      marginBottom: 10,
+      padding: 10,
+      borderRadius: 10,
       borderWidth: 1,
-      borderColor: p.line,
+      borderColor: p.warn,
     },
-    label: {fontSize: 12, color: p.sub, marginBottom: 4, fontWeight: '600'},
-    mono: {fontSize: 13, color: p.text, fontFamily: 'monospace'},
+    bannerText: {color: p.warn, fontSize: 13, fontWeight: '600'},
     addBar: {flexDirection: 'row', gap: 8, paddingHorizontal: 16},
     input: {
       flex: 1,
@@ -507,6 +522,7 @@ const styles = (p: Palette) =>
       justifyContent: 'center',
     },
     fileBtnText: {color: p.accent, fontWeight: '700', fontSize: 15},
+    list: {padding: 16},
     empty: {alignItems: 'center', paddingTop: 60, paddingHorizontal: 24, gap: 8},
     emptyTitle: {fontSize: 17, fontWeight: '700', color: p.text},
     card: {
@@ -518,6 +534,7 @@ const styles = (p: Palette) =>
     },
     name: {fontSize: 15, fontWeight: '600', color: p.text, marginBottom: 8},
     row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+    actions: {flexDirection: 'row', marginTop: 10, gap: 8, justifyContent: 'flex-end'},
     badge: {fontSize: 13, fontWeight: '600', color: p.accent},
     pct: {fontSize: 13, fontWeight: '600', color: p.text, fontVariant: ['tabular-nums']},
     track: {
@@ -530,11 +547,6 @@ const styles = (p: Palette) =>
     },
     bar: {height: 8, borderRadius: 4},
     meta: {fontSize: 12.5, color: p.sub, lineHeight: 19, fontVariant: ['tabular-nums']},
-    smallBtn: {
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: 10,
-      backgroundColor: p.track,
-    },
+    smallBtn: {paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: p.track},
     smallBtnText: {fontSize: 13.5, fontWeight: '600', color: p.text},
   });

@@ -66,3 +66,50 @@ jobs:
           git add RaonTorrent.apk
           git commit -q -m "APK build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" apk-build
+
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: RaonTorrent-apk
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Fetch legal test torrent (Debian netinst)
+        run: |
+          BASE=https://cdimage.debian.org/debian-cd/current/amd64/bt-cd/
+          NAME=$(curl -fsSL "$BASE" | grep -o 'debian-[0-9.]*-amd64-netinst.iso.torrent' | head -1)
+          echo "torrent: $NAME"
+          curl -fsSL "$BASE$NAME" -o /tmp/test.torrent
+
+      - name: Run on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disk-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash .github/scripts/emulator-test.sh
+
+      - name: Push results to test-results branch
+        if: always()
+        run: |
+          cd test-results
+          git init -q -b test-results
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "emulator test ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" test-results

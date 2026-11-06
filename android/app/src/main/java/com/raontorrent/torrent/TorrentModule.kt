@@ -19,6 +19,7 @@ class TorrentModule(private val ctx: ReactApplicationContext) : NativeTorrentSpe
 
   private val io = Executors.newSingleThreadExecutor()
   private var pickPromise: Promise? = null
+  private var folderPromise: Promise? = null
 
   private val activityListener =
       object : BaseActivityEventListener() {
@@ -28,11 +29,20 @@ class TorrentModule(private val ctx: ReactApplicationContext) : NativeTorrentSpe
             resultCode: Int,
             data: Intent?,
         ) {
-          if (requestCode != REQ_PICK) return
-          val p = pickPromise ?: return
-          pickPromise = null
           val uri = data?.data
-          if (resultCode != Activity.RESULT_OK || uri == null) p.resolve("") else p.resolve(uri.toString())
+          val ok = resultCode == Activity.RESULT_OK && uri != null
+          when (requestCode) {
+            REQ_PICK -> {
+              val p = pickPromise ?: return
+              pickPromise = null
+              p.resolve(if (ok) uri.toString() else "")
+            }
+            REQ_FOLDER -> {
+              val p = folderPromise ?: return
+              folderPromise = null
+              p.resolve(if (ok) treeUriToPath(uri!!) ?: "" else "")
+            }
+          }
         }
       }
 
@@ -127,6 +137,52 @@ class TorrentModule(private val ctx: ReactApplicationContext) : NativeTorrentSpe
     }
   }
 
+  override fun getSettings(promise: Promise) =
+      bg(promise) {
+        TorrentEngine.start(ctx)
+        TorrentEngine.settingsJson()
+      }
+
+  override fun setSettings(patchJson: String, promise: Promise) =
+      bg(promise) {
+        TorrentEngine.start(ctx)
+        TorrentEngine.updateSettings(patchJson)
+      }
+
+  override fun pickDownloadFolder(promise: Promise) {
+    val activity = ctx.currentActivity
+    if (activity == null) {
+      promise.reject("E_NO_ACTIVITY", "화면이 활성화되어 있지 않습니다")
+      return
+    }
+    folderPromise?.resolve("")
+    folderPromise = promise
+    try {
+      activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_FOLDER)
+    } catch (e: ActivityNotFoundException) {
+      folderPromise = null
+      promise.reject("E_PICKER", "폴더 선택기를 열 수 없습니다")
+    }
+  }
+
+  /** content://…/tree/primary%3ADownload%2FTV → /storage/emulated/0/Download/TV */
+  private fun treeUriToPath(uri: Uri): String? {
+    val docId =
+        try {
+          android.provider.DocumentsContract.getTreeDocumentId(uri)
+        } catch (_: Exception) {
+          return null
+        }
+    val parts = docId.split(":", limit = 2)
+    val volume = parts[0]
+    val rel = if (parts.size > 1) parts[1] else ""
+    val root =
+        if (volume.equals("primary", ignoreCase = true))
+            android.os.Environment.getExternalStorageDirectory().absolutePath
+        else "/storage/$volume"
+    return if (rel.isEmpty()) root else "$root/$rel"
+  }
+
   override fun requestAllFilesAccess() {
     val activity = ctx.currentActivity ?: return
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -150,5 +206,6 @@ class TorrentModule(private val ctx: ReactApplicationContext) : NativeTorrentSpe
   companion object {
     const val NAME = NativeTorrentSpec.NAME
     private const val REQ_PICK = 4711
+    private const val REQ_FOLDER = 4712
   }
 }

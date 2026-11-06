@@ -3,6 +3,9 @@ package com.raontorrent.torrent
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -10,6 +13,7 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import org.libtorrent4j.AlertListener
+import org.libtorrent4j.AnnounceEntry
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.SessionParams
@@ -26,6 +30,8 @@ import org.libtorrent4j.swig.error_code
 import org.libtorrent4j.swig.libtorrent
 import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * libtorrent4j(=libtorrent C++) 세션을 앱 프로세스 단위로 하나만 유지하는 엔진.
@@ -51,10 +57,8 @@ object TorrentEngine {
     if (isStarted) return
     app = ctx.applicationContext
 
-    val sp = SettingsPack()
-    sp.setEnableDht(true)
-    sp.setEnableLsd(true)
-    sp.listenInterfaces("0.0.0.0:6881,[::]:6881")
+    TorrentSettings.init(app)
+    val sp = TorrentSettings.toSettingsPack()
 
     session.addListener(
         object : AlertListener {
@@ -71,6 +75,124 @@ object TorrentEngine {
     session.start(SessionParams(sp))
     isStarted = true
     restore()
+    watchNetwork()
+    startStatsLog()
+  }
+
+  // ---------------------------------------------------------------- settings
+
+  fun settingsJson(): String {
+    TorrentSettings.init(app)
+    return TorrentSettings.get().put("effectivePort", TorrentSettings.effectivePort()).toString()
+  }
+
+  /** 설정 일부 변경 → 즉시 세션에 반영 */
+  fun updateSettings(patchJson: String): String {
+    TorrentSettings.init(app)
+    val before = TorrentSettings.get()
+    val after = TorrentSettings.merge(JSONObject(patchJson))
+    if (isStarted) {
+      session.applySettings(TorrentSettings.toSettingsPack())
+      if (!before.optBoolean("extraTrackers") && after.optBoolean("extraTrackers")) {
+        handles().forEach { addExtraTrackers(it) }
+      }
+      if (before.optBoolean("sequential") != after.optBoolean("sequential")) {
+        handles().forEach { applySequential(it, after.optBoolean("sequential")) }
+      }
+      evaluateNetwork()
+    }
+    return settingsJson()
+  }
+
+  private fun addExtraTrackers(th: TorrentHandle) {
+    // 비공개 토렌트에는 외부 트래커를 붙이지 않는다
+    val ti = th.torrentFile()
+    if (ti != null && ti.isPrivate) return
+    val existing = th.trackers().map { it.url() }.toHashSet()
+    var tier = existing.size
+    for (url in TorrentSettings.PUBLIC_TRACKERS) {
+      if (url in existing) continue
+      val e = AnnounceEntry(url)
+      e.tier((tier++).toShort())
+      th.addTracker(e)
+    }
+  }
+
+  private fun applySequential(th: TorrentHandle, on: Boolean) {
+    if (on) th.setFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+    else th.unsetFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+  }
+
+  // ---------------------------------------------------------------- Wi-Fi 전용
+
+  @Volatile
+  var waitingForWifi = false
+    private set
+
+  private fun watchNetwork() {
+    try {
+      val cm = app.getSystemService(ConnectivityManager::class.java)
+      cm.registerDefaultNetworkCallback(
+          object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = evaluateNetwork()
+
+            override fun onLost(network: Network) = evaluateNetwork()
+
+            override fun onCapabilitiesChanged(n: Network, c: NetworkCapabilities) =
+                evaluateNetwork()
+          })
+    } catch (t: Throwable) {
+      Log.w(TAG, "network callback failed", t)
+    }
+    evaluateNetwork()
+  }
+
+  private fun evaluateNetwork() {
+    if (!isStarted) return
+    val wifiOnly = TorrentSettings.get().optBoolean("wifiOnly")
+    val metered =
+        try {
+          app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
+        } catch (_: Throwable) {
+          false
+        }
+    val shouldPause = wifiOnly && metered
+    if (shouldPause && !session.isPaused) session.pause()
+    if (!shouldPause && session.isPaused) session.resume()
+    waitingForWifi = shouldPause
+  }
+
+  // ---------------------------------------------------------------- 진단 로그
+
+  private fun startStatsLog() {
+    Executors.newSingleThreadScheduledExecutor()
+        .scheduleWithFixedDelay(
+            {
+              try {
+                val sb = StringBuilder()
+                sb.append("dht=").append(session.dhtNodes())
+                sb.append(" down=").append(session.downloadRate())
+                sb.append(" up=").append(session.uploadRate())
+                sb.append(" port=").append(TorrentSettings.effectivePort())
+                sb.append(" listen=").append(session.listenEndpoints())
+                for (th in handles()) {
+                  val st = th.status(true)
+                  sb.append(" | ").append(th.infoHash().toHex().take(8))
+                  sb.append(" peers=").append(st.numPeers())
+                  sb.append(" seeds=").append(st.numSeeds())
+                  sb.append(" known=").append(st.listPeers())
+                  sb.append(" rate=").append(st.downloadPayloadRate())
+                  sb.append(" done=").append(st.totalWantedDone())
+                  sb.append("/").append(st.totalWanted())
+                }
+                Log.i("RaonTorrentStats", sb.toString())
+              } catch (t: Throwable) {
+                Log.w(TAG, "stats log failed", t)
+              }
+            },
+            5,
+            5,
+            TimeUnit.SECONDS)
   }
 
   private fun onAlert(alert: Alert<*>) {
@@ -84,6 +206,9 @@ object TorrentEngine {
         val th = a.handle()
         val hash = th.infoHash().toHex()
         val entry = entry(hash)
+        val cfg = TorrentSettings.get()
+        if (cfg.optBoolean("extraTrackers", true)) addExtraTrackers(th)
+        if (cfg.optBoolean("sequential")) applySequential(th, true)
         if (entry?.optBoolean("paused") == true) {
           th.unsetFlags(TorrentFlags.AUTO_MANAGED)
           th.pause()
@@ -91,6 +216,10 @@ object TorrentEngine {
           th.setFlags(TorrentFlags.AUTO_MANAGED)
           th.resume()
         }
+      }
+      AlertType.METADATA_RECEIVED -> {
+        val th = (alert as org.libtorrent4j.alerts.MetadataReceivedAlert).handle()
+        if (TorrentSettings.get().optBoolean("extraTrackers", true)) addExtraTrackers(th)
       }
       else -> Unit
     }
@@ -100,6 +229,12 @@ object TorrentEngine {
 
   /** 저장 위치: 권한이 있으면 공용 Download/RaonTorrent, 없으면 앱 전용 폴더 */
   fun saveDir(): File {
+    val custom = TorrentSettings.get().optString("downloadDir")
+    if (custom.isNotEmpty() && canWritePublic()) {
+      val d = File(custom)
+      d.mkdirs()
+      if (d.canWrite()) return d
+    }
     val publicDir =
         File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
@@ -343,6 +478,15 @@ object TorrentEngine {
     val rate = st.downloadPayloadRate()
     val eta = if (rate > 0 && wanted > done) (wanted - done) / rate else -1L
     val name = st.name().ifEmpty { e?.optString("name") ?: hash }
+    var trackers = 0
+    var trackersFailed = 0
+    try {
+      for (t in th.trackers()) {
+        trackers++
+        val eps = t.endpoints()
+        if (eps.isNotEmpty() && eps.all { ep -> ep.infohashV1().fails() > 0 }) trackersFailed++
+      }
+    } catch (_: Throwable) {}
 
     val state =
         when {
@@ -376,6 +520,11 @@ object TorrentEngine {
         .put("seeds", st.numSeeds())
         .put("eta", eta)
         .put("hasMetadata", st.hasMetadata())
+        .put("knownPeers", st.listPeers())
+        .put("connectCandidates", st.connectCandidates())
+        .put("trackers", trackers)
+        .put("trackersFailed", trackersFailed)
+        .put("activeSeconds", st.activeDuration())
         .put("savePath", e?.optString("save") ?: "")
         .put("added", e?.optLong("added") ?: 0L)
   }
@@ -383,6 +532,8 @@ object TorrentEngine {
   fun infoJson(): String =
       JSONObject()
           .put("started", isStarted)
+          .put("waitingForWifi", waitingForWifi)
+          .put("port", if (::app.isInitialized) TorrentSettings.effectivePort() else 0)
           .put("saveDir", if (::app.isInitialized) saveDir().absolutePath else "")
           .put("publicStorage", ::app.isInitialized && canWritePublic())
           .put("sdk", Build.VERSION.SDK_INT)

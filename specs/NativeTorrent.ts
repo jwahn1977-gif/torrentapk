@@ -17,6 +17,12 @@ export interface Spec extends TurboModule {
   remove(hash: string, deleteFiles: boolean): Promise<void>;
   /** 다운로드된 파일(가장 큰 파일)을 외부 앱으로 열기 */
   openFile(hash: string): Promise<void>;
+  /** 설정 JSON */
+  getSettings(): Promise<string>;
+  /** 설정 일부 변경(JSON) → 적용된 전체 설정 반환 */
+  setSettings(patchJson: string): Promise<string>;
+  /** 폴더 선택기 → 실제 경로 ('' = 취소) */
+  pickDownloadFolder(): Promise<string>;
   /** '모든 파일 접근' 설정 화면 열기 (공용 Download 폴더 저장용) */
   requestAllFilesAccess(): void;
 }
