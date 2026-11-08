@@ -560,7 +560,10 @@ object TorrentEngine {
       File(root, ".nomedia").createNewFile()
     } catch (_: Throwable) {}
     val dir = File(root, hash).apply { mkdirs() }
-    File(dir, "meta.torrent").writeBytes(ti.bencode())
+    // .torrent로 추가한 항목은 메타파일 보관 (마그넷은 링크로 다시 추가)
+    if (e.optString("type") == "file") {
+      File(e.optString("value")).takeIf { it.exists() }?.copyTo(File(dir, "meta.torrent"), true)
+    }
     trash
         .edit()
         .putString(
@@ -641,21 +644,26 @@ object TorrentEngine {
                     throw IllegalStateException("되살리기 실패: $n")
               }
               File(dir, ".$hash.parts").renameTo(File(save, ".$hash.parts"))
-              val meta = File(torrentFileDir(), "$hash.torrent")
-              File(dir, "meta.torrent").copyTo(meta, overwrite = true)
               val loc =
                   if (save.absolutePath == incompleteDir().absolutePath) "incomplete" else "final"
-              saveEntry(
-                  hash,
+              val ne =
                   JSONObject()
-                      .put("type", "file")
-                      .put("value", meta.absolutePath)
                       .put("name", t.optString("name"))
                       .put("save", e.optString("save", saveDir().absolutePath))
                       .put("loc", loc)
                       .put("paused", false)
-                      .put("added", e.optLong("added", System.currentTimeMillis())))
-              session.download(TorrentInfo(meta), save)
+                      .put("added", e.optLong("added", System.currentTimeMillis()))
+              val kept = File(dir, "meta.torrent")
+              if (kept.exists()) {
+                val meta = File(torrentFileDir(), "$hash.torrent")
+                kept.copyTo(meta, overwrite = true)
+                saveEntry(hash, ne.put("type", "file").put("value", meta.absolutePath))
+                session.download(TorrentInfo(meta), save)
+              } else {
+                val magnet = e.optString("value")
+                saveEntry(hash, ne.put("type", "magnet").put("value", magnet))
+                session.download(magnet, save, torrent_flags_t())
+              }
               dir.deleteRecursively()
             }
             trash.edit().remove(hash).apply()
