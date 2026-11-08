@@ -1,0 +1,3 @@
+11-08 01:08:48.118   517  2042 W InputManager-JNI: Input channel object 'bf2910a Splash Screen com.raontorrent (client)' was disposed without first being removed with the input manager!
+11-08 01:13:08.812  4499  4615 I RaonTorrent: moving 7acf8fb590b2060dd9c3146ef770169d593433b0 to /storage/emulated/0/Android/data/com.raontorrent/files/Download/RaonTorrent
+11-08 01:13:10.297  4499  4615 I RaonTorrent: moved 7acf8fb590b2060dd9c3146ef770169d593433b0 -> /storage/emulated/0/Android/data/com.raontorrent/files/Download/RaonTorrent

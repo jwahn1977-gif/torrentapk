@@ -1,0 +1,90 @@
+--------- beginning of main
+11-08 01:08:48.074  4499  4572 I ReactNativeJS: Running "RaonTorrent"
+11-08 01:08:54.093  4499  4621 I RaonTorrentStats: dht=53 down=1105782 up=52906 port=50151 listen=[] | 7acf8fb5 peers=41 seeds=27 known=337 rate=1218529 done=4718592/792723456
+11-08 01:08:59.094  4499  4621 I RaonTorrentStats: dht=81 down=2654698 up=129999 port=50151 listen=[] | 7acf8fb5 peers=81 seeds=67 known=400 rate=2525341 done=14417920/792723456
+11-08 01:09:04.094  4499  4621 I RaonTorrentStats: dht=82 down=3366598 up=164463 port=50151 listen=[] | 7acf8fb5 peers=95 seeds=89 known=406 rate=3260358 done=26214400/792723456
+11-08 01:09:09.095  4499  4621 I RaonTorrentStats: dht=123 down=3329911 up=177491 port=50151 listen=[] | 7acf8fb5 peers=103 seeds=96 known=448 rate=3147609 done=40632320/792723456
+11-08 01:09:14.096  4499  4621 I RaonTorrentStats: dht=134 down=3164668 up=165302 port=50151 listen=[] | 7acf8fb5 peers=127 seeds=105 known=499 rate=3024192 done=52690944/792723456
+11-08 01:09:19.096  4499  4621 I RaonTorrentStats: dht=144 down=2996956 up=173015 port=50151 listen=[] | 7acf8fb5 peers=142 seeds=125 known=528 rate=2903010 done=65011712/792723456
+11-08 01:09:24.096  4499  4621 I RaonTorrentStats: dht=164 down=2582829 up=169383 port=50151 listen=[] | 7acf8fb5 peers=156 seeds=132 known=583 rate=2527453 done=75497472/792723456
+11-08 01:09:29.097  4499  4621 I RaonTorrentStats: dht=209 down=2849163 up=178328 port=50151 listen=[] | 7acf8fb5 peers=188 seeds=160 known=642 rate=2671595 done=86769664/792723456
+11-08 01:09:34.098  4499  4621 I RaonTorrentStats: dht=242 down=2917076 up=187416 port=50151 listen=[] | 7acf8fb5 peers=204 seeds=185 known=764 rate=2699673 done=95420416/792723456
+11-08 01:09:39.099  4499  4621 I RaonTorrentStats: dht=272 down=3153252 up=205004 port=50151 listen=[] | 7acf8fb5 peers=220 seeds=203 known=826 rate=2906125 done=108789760/792723456
+11-08 01:09:44.100  4499  4621 I RaonTorrentStats: dht=301 down=3185765 up=230136 port=50151 listen=[] | 7acf8fb5 peers=242 seeds=224 known=880 rate=2951205 done=121634816/792723456
+11-08 01:09:49.101  4499  4621 I RaonTorrentStats: dht=305 down=3407962 up=228542 port=50151 listen=[] | 7acf8fb5 peers=256 seeds=241 known=910 rate=3328602 done=134742016/792723456
+11-08 01:09:54.101  4499  4621 I RaonTorrentStats: dht=308 down=3601285 up=256397 port=50151 listen=[] | 7acf8fb5 peers=263 seeds=247 known=937 rate=3363504 done=149946368/792723456
+11-08 01:09:59.102  4499  4621 I RaonTorrentStats: dht=308 down=3264592 up=249533 port=50151 listen=[] | 7acf8fb5 peers=270 seeds=255 known=943 rate=3060815 done=163840000/792723456
+11-08 01:10:04.103  4499  4621 I RaonTorrentStats: dht=308 down=2942376 up=240721 port=50151 listen=[] | 7acf8fb5 peers=270 seeds=257 known=950 rate=2713076 done=177209344/792723456
+11-08 01:10:09.104  4499  4621 I RaonTorrentStats: dht=310 down=2997586 up=234803 port=50151 listen=[] | 7acf8fb5 peers=273 seeds=260 known=970 rate=2795135 done=190840832/792723456
+11-08 01:10:14.104  4499  4621 I RaonTorrentStats: dht=311 down=3237949 up=248361 port=50151 listen=[] | 7acf8fb5 peers=275 seeds=264 known=976 rate=3053781 done=204210176/792723456
+11-08 01:10:19.126  4499  4621 I RaonTorrentStats: dht=311 down=3270060 up=244342 port=50151 listen=[] | 7acf8fb5 peers=286 seeds=274 known=987 rate=3275658 done=217055232/792723456
+11-08 01:10:24.127  4499  4621 I RaonTorrentStats: dht=311 down=3522308 up=278005 port=50151 listen=[] | 7acf8fb5 peers=289 seeds=275 known=987 rate=3139357 done=235405312/792723456
+11-08 01:10:29.127  4499  4621 I RaonTorrentStats: dht=311 down=3384745 up=275373 port=50151 listen=[] | 7acf8fb5 peers=284 seeds=272 known=1019 rate=3458658 done=252182528/792723456
+11-08 01:10:34.128  4499  4621 I RaonTorrentStats: dht=311 down=3074020 up=278829 port=50151 listen=[] | 7acf8fb5 peers=281 seeds=271 known=1039 rate=2788776 done=267911168/792723456
+11-08 01:10:39.129  4499  4621 I RaonTorrentStats: dht=311 down=2920574 up=262934 port=50151 listen=[] | 7acf8fb5 peers=281 seeds=272 known=1040 rate=2652468 done=280756224/792723456
+11-08 01:10:44.129  4499  4621 I RaonTorrentStats: dht=311 down=3406442 up=272779 port=50151 listen=[] | 7acf8fb5 peers=285 seeds=275 known=1047 rate=3062706 done=297009152/792723456
+11-08 01:10:49.130  4499  4621 I RaonTorrentStats: dht=311 down=3811811 up=294194 port=50151 listen=[] | 7acf8fb5 peers=284 seeds=275 known=1055 rate=3581860 done=312999936/792723456
+11-08 01:10:54.130  4499  4621 I RaonTorrentStats: dht=311 down=4295883 up=330389 port=50151 listen=[] | 7acf8fb5 peers=281 seeds=272 known=1055 rate=3870679 done=337641472/792723456
+11-08 01:10:59.133  4499  4621 I RaonTorrentStats: dht=311 down=3354351 up=276830 port=50151 listen=[] | 7acf8fb5 peers=284 seeds=275 known=1065 rate=3361026 done=352845824/792723456
+11-08 01:11:04.145  4499  4621 I RaonTorrentStats: dht=311 down=2932684 up=256771 port=50151 listen=[] | 7acf8fb5 peers=287 seeds=277 known=1068 rate=2772573 done=364118016/792723456
+11-08 01:11:09.147  4499  4621 I RaonTorrentStats: dht=311 down=3375687 up=282731 port=50151 listen=[] | 7acf8fb5 peers=287 seeds=278 known=1081 rate=3169768 done=379846656/792723456
+11-08 01:11:14.148  4499  4621 I RaonTorrentStats: dht=311 down=3183413 up=279318 port=50151 listen=[] | 7acf8fb5 peers=288 seeds=278 known=1081 rate=2903619 done=393740288/792723456
+11-08 01:11:19.148  4499  4621 I RaonTorrentStats: dht=310 down=3307324 up=299373 port=50151 listen=[] | 7acf8fb5 peers=289 seeds=279 known=1093 rate=3061131 done=407371776/792723456
+11-08 01:11:24.150  4499  4621 I RaonTorrentStats: dht=309 down=3302488 up=290456 port=50151 listen=[] | 7acf8fb5 peers=291 seeds=281 known=1098 rate=2986216 done=422051840/792723456
+11-08 01:11:29.154  4499  4621 I RaonTorrentStats: dht=309 down=3424256 up=301182 port=50151 listen=[] | 7acf8fb5 peers=291 seeds=282 known=1107 rate=3186884 done=439353344/792723456
+11-08 01:11:34.155  4499  4621 I RaonTorrentStats: dht=309 down=3692642 up=314935 port=50151 listen=[] | 7acf8fb5 peers=286 seeds=277 known=1107 rate=3451341 done=454557696/792723456
+11-08 01:11:39.159  4499  4621 I RaonTorrentStats: dht=311 down=3605361 up=313896 port=50151 listen=[] | 7acf8fb5 peers=284 seeds=275 known=1136 rate=3350081 done=470286336/792723456
+11-08 01:11:44.166  4499  4621 I RaonTorrentStats: dht=310 down=3499573 up=310127 port=50151 listen=[] | 7acf8fb5 peers=286 seeds=276 known=1136 rate=3180471 done=484966400/792723456
+11-08 01:11:49.172  4499  4621 I RaonTorrentStats: dht=311 down=3410728 up=299744 port=50151 listen=[] | 7acf8fb5 peers=285 seeds=276 known=1144 rate=3202536 done=500695040/792723456
+11-08 01:11:54.173  4499  4621 I RaonTorrentStats: dht=311 down=3752116 up=330469 port=50151 listen=[] | 7acf8fb5 peers=285 seeds=274 known=1146 rate=3429424 done=517996544/792723456
+11-08 01:11:59.175  4499  4621 I RaonTorrentStats: dht=311 down=3649570 up=299246 port=50151 listen=[] | 7acf8fb5 peers=279 seeds=272 known=1146 rate=3367581 done=530841600/792723456
+11-08 01:12:04.176  4499  4621 I RaonTorrentStats: dht=312 down=3469679 up=316706 port=50151 listen=[] | 7acf8fb5 peers=287 seeds=278 known=1146 rate=3179733 done=547880960/792723456
+11-08 01:12:09.192  4499  4621 I RaonTorrentStats: dht=312 down=3762768 up=334022 port=50151 listen=[] | 7acf8fb5 peers=288 seeds=280 known=1149 rate=3464745 done=564133888/792723456
+11-08 01:12:14.197  4499  4621 I RaonTorrentStats: dht=312 down=3929834 up=351117 port=50151 listen=[] | 7acf8fb5 peers=291 seeds=282 known=1155 rate=3624217 done=582483968/792723456
+11-08 01:12:19.199  4499  4621 I RaonTorrentStats: dht=312 down=4167013 up=386014 port=50151 listen=[] | 7acf8fb5 peers=285 seeds=278 known=1169 rate=3865434 done=603455488/792723456
+11-08 01:12:24.201  4499  4621 I RaonTorrentStats: dht=312 down=4069535 up=362877 port=50151 listen=[] | 7acf8fb5 peers=293 seeds=285 known=1171 rate=3735734 done=621019136/792723456
+11-08 01:12:29.202  4499  4621 I RaonTorrentStats: dht=312 down=3803623 up=340964 port=50151 listen=[] | 7acf8fb5 peers=295 seeds=287 known=1172 rate=3604362 done=637534208/792723456
+11-08 01:12:34.203  4499  4621 I RaonTorrentStats: dht=312 down=3973270 up=361592 port=50151 listen=[] | 7acf8fb5 peers=291 seeds=284 known=1179 rate=3738593 done=655622144/792723456
+11-08 01:12:39.204  4499  4621 I RaonTorrentStats: dht=312 down=3993756 up=371067 port=50151 listen=[] | 7acf8fb5 peers=295 seeds=287 known=1189 rate=3689063 done=675545088/792723456
+11-08 01:12:44.206  4499  4621 I RaonTorrentStats: dht=312 down=4088627 up=379663 port=50151 listen=[] | 7acf8fb5 peers=297 seeds=290 known=1189 rate=3734575 done=693108736/792723456
+11-08 01:12:49.207  4499  4621 I RaonTorrentStats: dht=312 down=4033121 up=369310 port=50151 listen=[] | 7acf8fb5 peers=298 seeds=291 known=1191 rate=3693515 done=712507392/792723456
+11-08 01:12:54.210  4499  4621 I RaonTorrentStats: dht=312 down=4326892 up=429141 port=50151 listen=[] | 7acf8fb5 peers=296 seeds=289 known=1192 rate=3942063 done=738459648/792723456
+11-08 01:12:59.217  4499  4621 I RaonTorrentStats: dht=312 down=3791769 up=389998 port=50151 listen=[] | 7acf8fb5 peers=295 seeds=287 known=1209 rate=3410714 done=760479744/792723456
+11-08 01:13:04.217  4499  4621 I RaonTorrentStats: dht=312 down=3656728 up=343724 port=50151 listen=[] | 7acf8fb5 peers=291 seeds=284 known=1209 rate=3347635 done=776208384/792723456
+11-08 01:13:08.812  4499  4615 I RaonTorrent: moving 7acf8fb590b2060dd9c3146ef770169d593433b0 to /storage/emulated/0/Android/data/com.raontorrent/files/Download/RaonTorrent
+11-08 01:13:10.297  4499  4615 I RaonTorrent: moved 7acf8fb590b2060dd9c3146ef770169d593433b0 -> /storage/emulated/0/Android/data/com.raontorrent/files/Download/RaonTorrent
+11-08 01:13:10.302  4499  4621 I RaonTorrentStats: dht=312 down=4063633 up=359015 port=50151 listen=[] | 7acf8fb5 peers=7 seeds=0 known=1217 rate=3234454 done=792723456/792723456
+11-08 01:13:11.745  4499  6185 I RaonTorrent: exported 7acf8fb590b2060dd9c3146ef770169d593433b0 -> Download/RaonTorrent
+11-08 01:13:15.305  4499  4621 I RaonTorrentStats: dht=312 down=1080788 up=98979 port=50151 listen=[]
+11-08 01:13:20.305  4499  4621 I RaonTorrentStats: dht=312 down=354152 up=32433 port=50151 listen=[]
+11-08 01:13:25.305  4499  4621 I RaonTorrentStats: dht=312 down=116045 up=10626 port=50151 listen=[]
+11-08 01:13:30.306  4499  4621 I RaonTorrentStats: dht=312 down=38022 up=3481 port=50151 listen=[]
+11-08 01:13:35.306  4499  4621 I RaonTorrentStats: dht=312 down=12457 up=1139 port=50151 listen=[]
+11-08 01:13:40.306  4499  4621 I RaonTorrentStats: dht=312 down=4081 up=373 port=50151 listen=[]
+11-08 01:13:45.307  4499  4621 I RaonTorrentStats: dht=312 down=1335 up=123 port=50151 listen=[]
+11-08 01:13:50.307  4499  4621 I RaonTorrentStats: dht=312 down=436 up=40 port=50151 listen=[]
+11-08 01:13:55.307  4499  4621 I RaonTorrentStats: dht=312 down=142 up=12 port=50151 listen=[]
+11-08 01:14:00.308  4499  4621 I RaonTorrentStats: dht=312 down=45 up=4 port=50151 listen=[]
+11-08 01:14:05.308  4499  4621 I RaonTorrentStats: dht=312 down=14 up=2 port=50151 listen=[]
+11-08 01:14:10.308  4499  4621 I RaonTorrentStats: dht=312 down=3 up=1 port=50151 listen=[]
+11-08 01:14:15.309  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
+11-08 01:14:20.309  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:14:25.309  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:14:30.310  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:14:35.310  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:14:40.310  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
+11-08 01:14:45.311  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
+11-08 01:14:50.311  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:14:55.311  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
+11-08 01:15:00.312  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
+11-08 01:15:05.312  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:15:10.312  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:15:15.313  4499  4621 I RaonTorrentStats: dht=312 down=1 up=1 port=50151 listen=[]
+11-08 01:15:20.313  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
+11-08 01:15:25.313  4499  4621 I RaonTorrentStats: dht=312 down=2 up=2 port=50151 listen=[]
+11-08 01:15:30.314  4499  4621 I RaonTorrentStats: dht=312 down=0 up=2 port=50151 listen=[]
+11-08 01:15:35.314  4499  4621 I RaonTorrentStats: dht=312 down=0 up=2 port=50151 listen=[]
+11-08 01:15:40.314  4499  4621 I RaonTorrentStats: dht=312 down=2 up=1 port=50151 listen=[]
+11-08 01:15:45.315  4499  4621 I RaonTorrentStats: dht=312 down=2 up=1 port=50151 listen=[]
+11-08 01:15:50.315  4499  4621 I RaonTorrentStats: dht=312 down=2 up=1 port=50151 listen=[]
+11-08 01:15:55.315  4499  4621 I RaonTorrentStats: dht=312 down=0 up=1 port=50151 listen=[]
