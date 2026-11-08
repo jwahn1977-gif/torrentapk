@@ -115,6 +115,18 @@ class TorrentModule(private val ctx: ReactApplicationContext) : NativeTorrentSpe
   override fun remove(hash: String, deleteFiles: Boolean, promise: Promise) =
       bg(promise) { TorrentEngine.remove(hash, deleteFiles) }
 
+  override fun listTrash(promise: Promise) = bg(promise) { TorrentEngine.trashJson() }
+
+  override fun restoreTrash(hash: String, promise: Promise) =
+      bg(promise) {
+        val name = TorrentEngine.restoreFromTrash(hash)
+        TorrentService.refresh(ctx)
+        name
+      }
+
+  override fun deleteTrash(hash: String, promise: Promise) =
+      bg(promise) { TorrentEngine.deleteFromTrash(hash) }
+
   override fun exportToPublic(hash: String, promise: Promise) =
       bg(promise) { TorrentEngine.exportToPublic(hash) }
 

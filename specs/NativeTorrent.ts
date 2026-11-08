@@ -14,7 +14,14 @@ export interface Spec extends TurboModule {
   pickTorrentFile(): Promise<string>;
   pause(hash: string): Promise<void>;
   resume(hash: string): Promise<void>;
+  /** deleteFiles = true → 파일을 휴지통으로 (30일 보관) */
   remove(hash: string, deleteFiles: boolean): Promise<void>;
+  /** 휴지통 목록(JSON 배열 문자열) */
+  listTrash(): Promise<string>;
+  /** 휴지통에서 되살리기 → 이름 */
+  restoreTrash(hash: string): Promise<string>;
+  /** 휴지통에서 영구 삭제 ('' = 비우기) */
+  deleteTrash(hash: string): Promise<void>;
   /** 다운로드된 파일(가장 큰 파일)을 외부 앱으로 열기 */
   openFile(hash: string): Promise<void>;
   /** 완료된 토렌트를 공용 Download/RaonTorrent 로 옮기기 → 보여줄 경로 */

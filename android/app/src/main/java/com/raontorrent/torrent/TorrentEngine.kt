@@ -9,6 +9,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
@@ -83,6 +84,7 @@ object TorrentEngine {
     session.start(params)
     isStarted = true
     restore()
+    trashIo.execute { purgeExpiredTrash() }
     watchNetwork()
     startStatsLog()
   }
@@ -447,24 +449,245 @@ object TorrentEngine {
     setPausedFlag(hash, false)
   }
 
+  /** deleteFiles = true 이면 파일을 바로 지우지 않고 휴지통으로 옮긴다 (30일 후 자동 삭제). */
   fun remove(hash: String, deleteFiles: Boolean) {
-    find(hash)?.let { th ->
-      if (deleteFiles) session.remove(th, SessionHandle.DELETE_FILES) else session.remove(th)
+    if (deleteFiles) {
+      moveToTrash(hash)
+      return
     }
+    find(hash)?.let { session.remove(it) }
     entry(hash)?.let { e ->
       if (e.optString("type") == "file") File(e.optString("value")).delete()
-      if (e.optString("type") == "exported" && deleteFiles) {
-        val uris = e.optJSONArray("uris")
-        for (i in 0 until (uris?.length() ?: 0)) {
-          try {
-            app.contentResolver.delete(Uri.parse(uris!!.getString(i)), null, null)
-          } catch (t: Throwable) {
-            Log.w(TAG, "delete exported failed", t)
-          }
-        }
-      }
     }
     prefs.edit().remove(hash).apply()
+  }
+
+  // ---------------------------------------------------------------- trash
+
+  private const val TRASH_DAYS = 30L
+  private const val TRASH_DIR = ".raontrash"
+  private val trash by lazy { app.getSharedPreferences("trash", Context.MODE_PRIVATE) }
+  private val trashIo = Executors.newSingleThreadExecutor()
+
+  private fun trashEntry(hash: String): JSONObject? =
+      trash.getString(hash, null)?.let {
+        try {
+          JSONObject(it)
+        } catch (_: Exception) {
+          null
+        }
+      }
+
+  private fun <T> onTrashIo(block: () -> T): T =
+      try {
+        trashIo.submit(java.util.concurrent.Callable { block() }).get()
+      } catch (e: java.util.concurrent.ExecutionException) {
+        throw e.cause ?: e
+      }
+
+  /** 휴지통에 넣은 MediaStore 항목도 찾도록 하는 옵션 (Android 11+) */
+  @androidx.annotation.RequiresApi(30)
+  private fun matchTrashed(): Bundle =
+      Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE) }
+
+  @androidx.annotation.RequiresApi(30)
+  private fun setTrashed(uri: Uri, trashed: Boolean) {
+    val v = ContentValues().apply { put(MediaStore.MediaColumns.IS_TRASHED, if (trashed) 1 else 0) }
+    app.contentResolver.update(uri, v, matchTrashed())
+  }
+
+  private fun deleteUris(uris: JSONArray?) {
+    for (i in 0 until (uris?.length() ?: 0)) {
+      try {
+        val uri = Uri.parse(uris!!.getString(i))
+        if (Build.VERSION.SDK_INT >= 30) app.contentResolver.delete(uri, matchTrashed())
+        else app.contentResolver.delete(uri, null, null)
+      } catch (t: Throwable) {
+        Log.w(TAG, "delete uri failed", t)
+      }
+    }
+  }
+
+  private fun moveToTrash(hash: String) {
+    val e = entry(hash)
+    val now = System.currentTimeMillis()
+
+    // Download 폴더로 내보낸 항목 → MediaStore 휴지통 (Android 11+)
+    if (e?.optString("type") == "exported") {
+      val uris = e.optJSONArray("uris") ?: JSONArray()
+      if (Build.VERSION.SDK_INT >= 30) {
+        for (i in 0 until uris.length()) setTrashed(Uri.parse(uris.getString(i)), true)
+        trash
+            .edit()
+            .putString(
+                hash,
+                JSONObject()
+                    .put("kind", "media")
+                    .put("name", e.optString("name"))
+                    .put("size", e.optLong("size"))
+                    .put("deleted", now)
+                    .put("entry", e)
+                    .toString())
+            .apply()
+      } else {
+        deleteUris(uris) // Android 10 이하는 시스템 휴지통이 없음
+      }
+      prefs.edit().remove(hash).apply()
+      return
+    }
+
+    val th = find(hash)
+    val ti = th?.torrentFile()
+    if (th == null || ti == null || e == null) {
+      // 아직 받은 데이터가 없음 → 그냥 정리
+      th?.let { session.remove(it, SessionHandle.DELETE_FILES) }
+      e?.takeIf { it.optString("type") == "file" }?.let { File(it.optString("value")).delete() }
+      prefs.edit().remove(hash).apply()
+      return
+    }
+
+    val savePath = th.savePath()
+    val fs = ti.files()
+    val names = LinkedHashSet<String>()
+    var size = 0L
+    for (i in 0 until fs.numFiles()) {
+      if (fs.padFileAt(i)) continue
+      names.add(fs.filePath(i).substringBefore('/'))
+      size += fs.fileSize(i)
+    }
+    val root = File(savePath, TRASH_DIR).apply { mkdirs() }
+    try {
+      File(root, ".nomedia").createNewFile()
+    } catch (_: Throwable) {}
+    val dir = File(root, hash).apply { mkdirs() }
+    File(dir, "meta.torrent").writeBytes(ti.bencode())
+    trash
+        .edit()
+        .putString(
+            hash,
+            JSONObject()
+                .put("kind", "files")
+                .put("name", ti.name())
+                .put("size", size)
+                .put("deleted", now)
+                .put("entry", e)
+                .put("savePath", savePath)
+                .put("dir", dir.absolutePath)
+                .put("names", JSONArray(names.toList()))
+                .toString())
+        .apply()
+
+    th.pause()
+    session.remove(th)
+    if (e.optString("type") == "file") File(e.optString("value")).delete()
+    prefs.edit().remove(hash).apply()
+
+    trashIo.execute {
+      Thread.sleep(1500) // libtorrent가 파일을 닫을 시간
+      for (n in names) {
+        val src = File(savePath, n)
+        if (src.exists() && !src.renameTo(File(dir, n))) Log.w(TAG, "trash move failed: $src")
+      }
+      File(savePath, ".$hash.parts").renameTo(File(dir, ".$hash.parts"))
+      Log.i(TAG, "trashed $hash")
+    }
+  }
+
+  fun trashJson(): String {
+    val arr = JSONArray()
+    if (!::app.isInitialized) return arr.toString()
+    val day = TimeUnit.DAYS.toMillis(1)
+    for ((hash, raw) in trash.all) {
+      try {
+        val t = JSONObject(raw as String)
+        val deleted = t.optLong("deleted")
+        arr.put(
+            JSONObject()
+                .put("hash", hash)
+                .put("name", t.optString("name"))
+                .put("size", t.optLong("size"))
+                .put("deleted", deleted)
+                .put("expires", deleted + TRASH_DAYS * day))
+      } catch (_: Exception) {}
+    }
+    return arr.toString()
+  }
+
+  /** 휴지통에서 되살리기 → 이름 반환 */
+  fun restoreFromTrash(hash: String): String =
+      onTrashIo {
+            val t = trashEntry(hash) ?: throw IllegalStateException("휴지통에 없는 항목입니다")
+            if (find(hash) != null || entry(hash) != null)
+                throw IllegalStateException("이미 목록에 있는 토렌트입니다")
+            val e = t.getJSONObject("entry")
+            if (t.optString("kind") == "media") {
+              if (Build.VERSION.SDK_INT < 30) throw IllegalStateException("이 기기에서는 되살릴 수 없습니다")
+              val uris = e.optJSONArray("uris") ?: JSONArray()
+              for (i in 0 until uris.length()) setTrashed(Uri.parse(uris.getString(i)), false)
+              saveEntry(hash, e)
+            } else {
+              val dir = File(t.getString("dir"))
+              val save = File(t.getString("savePath")).apply { mkdirs() }
+              val names = t.getJSONArray("names")
+              for (i in 0 until names.length()) {
+                val n = names.getString(i)
+                if (File(dir, n).exists() && File(save, n).exists())
+                    throw IllegalStateException("같은 이름의 파일이 이미 있습니다: $n")
+              }
+              for (i in 0 until names.length()) {
+                val n = names.getString(i)
+                val src = File(dir, n)
+                if (src.exists() && !src.renameTo(File(save, n)))
+                    throw IllegalStateException("되살리기 실패: $n")
+              }
+              File(dir, ".$hash.parts").renameTo(File(save, ".$hash.parts"))
+              val meta = File(torrentFileDir(), "$hash.torrent")
+              File(dir, "meta.torrent").copyTo(meta, overwrite = true)
+              val loc =
+                  if (save.absolutePath == incompleteDir().absolutePath) "incomplete" else "final"
+              saveEntry(
+                  hash,
+                  JSONObject()
+                      .put("type", "file")
+                      .put("value", meta.absolutePath)
+                      .put("name", t.optString("name"))
+                      .put("save", e.optString("save", saveDir().absolutePath))
+                      .put("loc", loc)
+                      .put("paused", false)
+                      .put("added", e.optLong("added", System.currentTimeMillis())))
+              session.download(TorrentInfo(meta), save)
+              dir.deleteRecursively()
+            }
+            trash.edit().remove(hash).apply()
+            t.optString("name")
+          }
+
+  /** 휴지통에서 영구 삭제 ('' = 전부 비우기) */
+  fun deleteFromTrash(hash: String) {
+    onTrashIo {
+      val keys = if (hash.isEmpty()) trash.all.keys.toList() else listOf(hash)
+      keys.forEach { purgeTrash(it) }
+    }
+  }
+
+  private fun purgeTrash(hash: String) {
+    val t = trashEntry(hash)
+    if (t != null) {
+      if (t.optString("kind") == "media") deleteUris(t.optJSONObject("entry")?.optJSONArray("uris"))
+      else File(t.optString("dir")).takeIf { it.path.isNotEmpty() }?.deleteRecursively()
+    }
+    trash.edit().remove(hash).apply()
+  }
+
+  private fun purgeExpiredTrash() {
+    val limit = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(TRASH_DAYS)
+    for ((hash, raw) in trash.all) {
+      try {
+        if (JSONObject(raw as String).optLong("deleted") < limit) purgeTrash(hash)
+      } catch (t: Throwable) {
+        Log.w(TAG, "purge failed for $hash", t)
+      }
+    }
   }
 
   /** 가장 큰 파일(동영상 등)의 실제 경로 */
